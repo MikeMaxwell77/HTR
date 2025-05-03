@@ -388,7 +388,7 @@ class RegionFocusedTextDetector:
 
         print(f"Processing complete. Processed {processed_count} images.")
 
-# --- 3. Modified segment_words Function ---
+#/////////////////SEGMENTS PIXELS ON PAGE INTO BORDERS/////////////////////////
 #https://medium.com/%40maniksingh256/word-segmentation-from-handwritten-paragraphs-using-opencv-tools-6ba05dee13b8
 def segment_words(image_path):
     detector = RegionFocusedTextDetector()
@@ -468,8 +468,17 @@ def score(pred, target):
 #load information from csv
 forms_data = pd.read_csv('forms_data.csv')
 host="C:/Users/mikey/OneDrive/Documents/USCB/Data Mining/Project/Forms/"
+#to be saved
+data = {
+    'form_id': [],
+    'text_pred': [],
+    'text_true': []
+}
+future_csv = pd.DataFrame(data)
 
+#results based on ratio of words in predict/(all words in the form)
 results_forms = []
+#ratio of based
 results_pred =[]
 
 results_sentences = []
@@ -711,4 +720,12 @@ for index, row in forms_data.iterrows():
     ratio =ratio/len(cleaned)
     results_pred.append(ratio)
     print(f'Percent of words from the predictions in common{ratio}')
+    
+    #store the results in a df
+    future_csv.loc[len(future_csv)] = [form_id, sentences, form_info]
+#save to a csv
+future_csv.to_csv("model_predictions.csv", index=True)
+
+     
+    
     
