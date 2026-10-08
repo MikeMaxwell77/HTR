@@ -40,6 +40,10 @@ good starting point for building OCR systems.
 
 """## Imports"""
 
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 import keras
 from keras.layers import StringLookup
 from keras import ops
@@ -53,7 +57,7 @@ keras.utils.set_random_seed(42)
 
 """## Dataset splitting"""
 
-base_path = "data"
+base_path = str(PROJECT_ROOT / "data")
 words_list = []
 
 words = open(f"{base_path}/words.txt", "r").readlines()
@@ -474,7 +478,7 @@ history = model.fit(
     callbacks=[edit_distance_callback],
 )
 #model.save_weights("HTR1.weights.h5")
-model.save("word_recognition_model_alpha.keras")
+model.save(str(PROJECT_ROOT / "models/word_recognition_model_alpha.keras"))
 
 """## Inference"""
 
@@ -523,7 +527,7 @@ plt.show()
 
 """To get better results the model should be trained for at least 50 epochs."""
 
-model.save("word_recognition_model_alpha.keras")
+model.save(str(PROJECT_ROOT / "models/word_recognition_model_alpha.keras"))
 
 """## Final remarks
 
