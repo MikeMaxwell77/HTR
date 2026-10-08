@@ -2,14 +2,14 @@
 
 ## What Better Segmentation v5 needs
 
-`Better_Segmentation2Keras_v5.py` defines its own segmentation, preprocessing,
-and decoding functions. It imports third-party libraries, not other project
-scripts. Running inference requires:
+`Better_Segmentation2Keras_v5.py` is the CLI entry point for the modules in
+`scripts/segmentation/`. These modules are required alongside the entry point.
+No data-preparation, training, example, or evaluation script needs to run first. Running inference requires:
 
 1. `models/pred.keras`: the pretrained recognition model.
 2. `data/forms_data.csv`: form IDs and reference text (`Form ID`, `Form Data`).
 3. External IAM form images named `<form_id>.png`, found through the script's
-   `host` variable. These images are not in this repository.
+   `--forms-dir` argument (default in `segmentation/config.py`). These images are not in this repository.
 4. NumPy, OpenCV (`cv2`), Keras, TensorFlow, Matplotlib, pandas, and TextBlob.
 
 `Make formsCSV.py` is only needed if rebuilding the reference CSV. No training,
@@ -20,7 +20,7 @@ The saved model's provenance cannot be established from the filenames alone.
 
 | File | Purpose | Needed by v5? |
 | --- | --- | --- |
-| `scripts/Better_Segmentation2Keras_v5.py` | Detects and groups handwritten regions, crops/preprocesses words, runs the saved model, decodes text, prints TextBlob corrections and overlap scores, displays plots, and exports predictions. | Main entry point |
+| `scripts/Better_Segmentation2Keras_v5.py` | Detects and groups handwritten regions, crops/preprocesses words, runs the saved model, decodes text, prints TextBlob corrections and overlap scores, displays plots, and exports predictions. | Main entry point; implementation delegated to `segmentation/` |
 | `scripts/data_preparation/Make formsCSV.py` | Reads external IAM `ascii/lines.txt`, combines valid lines by form, keeps IDs starting with `j`, and writes `data/forms_data.csv`. Input path is still machine-specific. | Only to regenerate the CSV |
 | `scripts/data_preparation/Make word_location_list.py` | Reads external `words.txt`; writes image paths and word labels into `data/word_dataset_info.csv`. | No |
 | `scripts/training/CTC_Word.py` | Trains a CNN with bidirectional LSTM and CTC loss; evaluates predictions, plots loss, and saves `models/word_recognition_model.keras`. Has a machine-specific working directory. | No |
@@ -55,3 +55,11 @@ method can also write `outputs/detection_visualization.png` when invoked.
 The training scripts' saved filenames are different from `pred.keras`. Do not
 assume renaming any newly trained model makes it compatible: input shape,
 preprocessing, character vocabulary, and decoding must agree with v5.
+
+## Modular implementation
+
+See the [README module table](../README.md#segmentation-modules) for each file
+in `scripts/segmentation/`. Keep this entire package with the v5 entry point.
+The pipeline skips unreadable images and empty extractions, and creates the
+output directory when needed. Core detector, resize, preprocessing, alternate
+segmentation, and decoder function bodies are preserved from v5.
