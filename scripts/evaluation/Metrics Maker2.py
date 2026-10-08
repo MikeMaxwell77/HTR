@@ -6,7 +6,7 @@ Created on Fri May  2 14:47:32 2025
 """
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer

@@ -14,7 +14,7 @@ Created on Thu Apr 10 21:19:54 2025
 
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"

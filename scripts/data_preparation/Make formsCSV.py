@@ -12,7 +12,7 @@ PILLOW: https://pillow.readthedocs.io/en/stable/reference/Image.html
 #keras
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 import numpy as np
 import pandas as pd

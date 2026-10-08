@@ -42,7 +42,7 @@ good starting point for building OCR systems.
 
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 import keras
 from keras.layers import StringLookup
