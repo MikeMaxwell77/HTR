@@ -13,4 +13,4 @@ if (-not (Test-Path -LiteralPath $requirements)) {
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed.' }
 & $environmentPython -m pip check
 if ($LASTEXITCODE -ne 0) { throw 'Dependency check failed.' }
-Write-Host 'Environment ready. Run: python train.py --words-dir "C:/datasets/IAM/words"'
+Write-Host 'Environment ready. Set WORDS_DIR in train.py, then run: python train.py'

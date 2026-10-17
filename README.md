@@ -116,15 +116,17 @@ The setup script installs the exact versions in
 `scripts/training/requirements-lock.txt` (captured on Windows with Python 3.12).
 The broader dependency constraints remain in `scripts/training/requirements.txt`.
 
-Start training from the repository root; activation is not required:
+Set `WORDS_DIR` at the top of `train.py` to the extracted IAM words folder
+(default: `data/words`). Set epochs, batch size, and optional image limit there
+as well. Then run the file in your IDE or from the repository root; activation
+and command-line options are not required:
 
 ```powershell
-python train.py --words-dir "C:/datasets/IAM/words" --limit 100 --epochs 1
-python train.py --words-dir "C:/datasets/IAM/words" --epochs 50 --batch-size 8
+python train.py
 ```
 
-`train.py` forwards all options to the CTC trainer using `.venv`'s interpreter.
-Relative dataset paths are resolved from your current working directory.
+`train.py` passes the saved settings to the CTC trainer using `.venv`'s interpreter.
+Relative dataset paths are resolved from the project root.
 Use `python train.py --help` for all options. Outputs default to `models/ctc_word/`.
 For IDE runs, select `.venv/Scripts/python.exe` as the Python interpreter.
 To run the checks with this environment:
