@@ -6,6 +6,9 @@ import tensorflow as tf
 
 
 def main():
+    # The save/load test compares float32 outputs at 1e-6. Disable TensorFloat-32
+    # approximations for this precision check; training keeps its normal defaults.
+    tf.config.experimental.enable_tensor_float_32_execution(False)
     print(f"TensorFlow: {tf.__version__}", flush=True)
     print(f"Build: {tf.sysconfig.get_build_info()}", flush=True)
     gpus = tf.config.list_physical_devices("GPU")

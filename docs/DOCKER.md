@@ -4,6 +4,12 @@ This image runs the CTC word trainer and its tests. It packages the source so th
 same image can later be pushed to a registry and run on an AWS GPU host. The
 segmentation/inference tools have additional dependencies and are not included.
 
+Validated on October 17, 2026 with Docker Desktop's Linux engine and an NVIDIA
+GeForce RTX 5050 Laptop GPU: image build, GPU matrix multiplication, all three
+training tests, and two epochs over 100 IAM images (80 training/20 validation,
+batch size 2). The model, metadata, history, and predictions persisted in the
+host's `models/` folder. This small run validates execution, not model accuracy.
+
 ## Windows prerequisites
 
 Install Docker Desktop with the **WSL 2 backend** and Linux containers enabled.
@@ -23,12 +29,36 @@ This is a separate Linux dependency stack from the Windows `.venv` and lockfile.
 Do not install `scripts/training/requirements-lock.txt` inside it; doing so would
 replace the NVIDIA TensorFlow build. NVIDIA ended this container release line
 after 25.02. Reassess the base and run the smoke test before a future production
-deployment. The base tag and added dependencies are pinned, but this is not a
-complete transitive lock; pin the validated image digest for deployment.
+deployment. The base is pinned by digest and added dependencies are pinned by
+version. Deploy the validated final image by digest as well.
 
 ## Build and check
 
 From the repository root in PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Setup
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Smoke
+```
+
+`Setup` finds Docker Desktop even when `docker` is missing from PATH, builds the
+image, and checks GPU execution and the training tests. `Smoke` builds and trains
+on 100 real IAM images for one epoch, saving to a unique `models/docker-smoke-*/`
+folder. The execution policy flag applies only to this PowerShell process.
+
+To train using the settings in `train.py`, or supply overrides:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Train
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Train --epochs 50 --batch-size 2
+```
+
+The launcher rebuilds before training so source/settings changes are included.
+`Check` reruns the GPU tests using the already built image. The precision check
+disables TensorFloat-32 approximations to compare saved/reloaded float32 outputs;
+normal training retains TensorFlow's default precision settings.
+
+Equivalent direct Docker commands, when `docker` is on PATH:
 
 ```powershell
 docker compose build
@@ -40,6 +70,9 @@ The last command requires a visible TensorFlow GPU, executes a GPU matrix
 multiplication, and runs the existing tests including a CNN/BiLSTM/CTC training
 step, decoding, and model save/load. A missing GPU or a failed/skipped test
 returns a nonzero exit code. Run this before launching a long training job.
+The NVIDIA base can print CUDA plugin registration, NUMA, PTX feature, and GPU
+timing warnings. These appeared during validation; use the final test result and
+process exit code to determine success.
 
 ## Train
 

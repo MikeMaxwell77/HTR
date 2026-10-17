@@ -89,6 +89,8 @@ def make_dataset(records, vocabulary, width, height, batch_size, shuffle=False, 
     data = tf.data.Dataset.from_generator(generate, output_signature=(
         tf.TensorSpec((width, height, 1), tf.float32),
         tf.TensorSpec((max_label,), tf.int32)))
+    # Tell Keras the finite dataset size so it can restart each epoch cleanly.
+    data = data.apply(tf.data.experimental.assert_cardinality(len(records)))
     if shuffle:
         data = data.shuffle(min(len(records), 256), seed=seed)
     return data.batch(batch_size).prefetch(1)

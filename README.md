@@ -71,10 +71,14 @@ see [the Docker guide](docs/DOCKER.md). Quick start after installing Docker Desk
 with its WSL 2 backend:
 
 ```powershell
-docker compose build
-docker compose run --rm --entrypoint python train -m docker.gpu_check
-docker compose run --rm train --limit 100 --epochs 1 --batch-size 2
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Setup
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Smoke
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Train --batch-size 2
 ```
+
+The launcher locates Docker Desktop automatically and rebuilds when needed.
+`Setup` verifies GPU training; `Smoke` runs one epoch on 100 images and writes to
+a separate model folder; `Train` uses the settings in `train.py` plus overrides.
 
 `scripts/training/CTC_Word.py` trains three convolutional blocks followed by
 exactly two bidirectional LSTMs (128 then 64 units per direction), and a character

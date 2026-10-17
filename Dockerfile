@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Keep NVIDIA's Blackwell-capable TensorFlow build and its matching CUDA libraries.
-ARG BASE_IMAGE=nvcr.io/nvidia/tensorflow:25.02-tf2-py3
+ARG BASE_IMAGE=nvcr.io/nvidia/tensorflow:25.02-tf2-py3@sha256:c83b37d26f19ab00d8a13cf974edd079c3d099918ec3110c304a989d6e2f75d5
 FROM ${BASE_IMAGE}
 
 ENV PYTHONUNBUFFERED=1 \
