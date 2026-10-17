@@ -9,7 +9,7 @@ import sys
 
 # Training settings: set WORDS_DIR to your IAM words folder once.
 PROJECT_ROOT = Path(__file__).resolve().parent
-WORDS_DIR = PROJECT_ROOT / "data" / "words"
+WORDS_DIR = PROJECT_ROOT / "data" / "IAM_Words" / "words"
 CSV_PATH = PROJECT_ROOT / "data" / "word_dataset_info.csv"
 OUTPUT_DIR = PROJECT_ROOT / "models" / "ctc_word"
 EPOCHS = 50

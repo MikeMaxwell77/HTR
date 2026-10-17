@@ -117,7 +117,7 @@ The setup script installs the exact versions in
 The broader dependency constraints remain in `scripts/training/requirements.txt`.
 
 Set `WORDS_DIR` at the top of `train.py` to the extracted IAM words folder
-(default: `data/words`). Set epochs, batch size, and optional image limit there
+(default: `data/IAM_Words/words`). Set epochs, batch size, and optional image limit there
 as well. Then run the file in your IDE or from the repository root; activation
 and command-line options are not required:
 
