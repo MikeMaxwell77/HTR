@@ -32,17 +32,15 @@ def read_records(csv_path, words_dir, limit=None):
 
 
 def canvas_size(records, width=None, height=None):
-    sizes = [read_grayscale(path).size for path, _ in records]
     # CTC needs an extra timestep between consecutive identical characters.
     min_steps = max(len(word) + sum(a == b for a, b in zip(word, word[1:]))
                     for _, word in records)
-    required_width = max(max(w for w, _ in sizes), min_steps * 4)
-    required_height = max(h for _, h in sizes)
-    width = width if width is not None else (required_width + 3) // 4 * 4
-    height = height if height is not None else (required_height + 7) // 8 * 8
-    if width < required_width or height < required_height or width % 4 or height % 8:
-        raise ValueError(f"Canvas requires width >= {required_width} (multiple of 4) and "
-                         f"height >= {required_height} (multiple of 8); no resizing/cropping is allowed")
+    required_width = min_steps * 4
+    width = width if width is not None else max(128, required_width)
+    height = height if height is not None else 32
+    if width < required_width or height < 8 or width % 4 or height % 8:
+        raise ValueError(f"CTC requires width >= {required_width} (multiple of 4) and "
+                         "height >= 8 (multiple of 8); increase --width for long labels")
     return width, height
 
 
@@ -61,7 +59,9 @@ def build_ctc_model(width, height, num_characters, lstm_units=128):
     x = layers.Dense(128, activation="relu")(x)
     x = layers.Dropout(0.2)(x)
     x = layers.Bidirectional(layers.LSTM(lstm_units, return_sequences=True))(x)
+    x = layers.Dropout(0.15, name="lstm_1_dropout")(x)
     x = layers.Bidirectional(layers.LSTM(lstm_units // 2, return_sequences=True))(x)
+    x = layers.Dropout(0.15, name="lstm_2_dropout")(x)
     logits = layers.Dense(num_characters + 1, name="character_logits")(x)
     model = keras.Model(image, logits, name="word_recognizer")
 
@@ -110,8 +110,8 @@ def main():
     parser.add_argument("--csv", type=Path, default=PROJECT_ROOT / "data/word_dataset_info.csv")
     parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "models/ctc_word")
     parser.add_argument("--png-dir", type=Path, help="Optional standardized, losslessly compressed PNG export")
-    parser.add_argument("--width", type=int, help="Horizontal canvas width; auto-detected by default")
-    parser.add_argument("--height", type=int, help="Horizontal canvas height; auto-detected by default")
+    parser.add_argument("--width", type=int, help="Resize canvas width before rotation (default: 128, increased for long labels)")
+    parser.add_argument("--height", type=int, default=32, help="Resize canvas height before rotation (default: 32)")
     parser.add_argument("--lstm-units", type=int, default=128)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=50)
@@ -149,6 +149,9 @@ def main():
     metadata = {"characters": vocabulary, "blank_index": 0, "width": width, "height": height,
                 "rotation": "90 degrees clockwise", "normalization": "divide by 255",
                 "padding": "white; left-aligned, vertically centered before rotation",
+                "resize": "fit canvas preserving aspect ratio; Pillow LANCZOS",
+                "png_compression": "lossless PNG, compression level 9 when exported",
+                "lstm_output_dropout": 0.15,
                 "lstm_units": [args.lstm_units, args.lstm_units // 2],
                 "output": "logits", "seed": args.seed,
                 "training": training, "validation": validation}

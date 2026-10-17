@@ -1,8 +1,8 @@
-"""Pixel-preserving preprocessing shared by training and inference."""
+"""Aspect-ratio-preserving resize and lossless PNG export for word images."""
 from pathlib import Path
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 def read_grayscale(path):
@@ -13,14 +13,14 @@ def read_grayscale(path):
 
 
 def standardize_image(path, width, height, png_path=None):
-    """Pad original to (width, height), then rotate clockwise; never resample.
+    """Resize to fit (width, height), pad white, then rotate clockwise.
 
     Returned PIL size is (height, width), so array axis 0 follows reading order.
     width/height describe the original, horizontal canvas.
     """
-    image = read_grayscale(path)
-    if image.width > width or image.height > height:
-        raise ValueError(f"{path}: image {image.size} exceeds canvas {(width, height)}")
+    if width < 1 or height < 1:
+        raise ValueError("Canvas dimensions must be positive")
+    image = ImageOps.contain(read_grayscale(path), (width, height), Image.Resampling.LANCZOS)
     canvas = Image.new("L", (width, height), 255)
     canvas.paste(image, (0, (height - image.height) // 2))
     rotated = canvas.transpose(Image.Transpose.ROTATE_270)

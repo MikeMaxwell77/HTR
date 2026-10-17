@@ -95,15 +95,18 @@ Use `--limit 100 --epochs 1` for a small trial. Images are loaded in batches.
 The seeded 80/20 split is by image, not by writer; validation accuracy does not
 measure generalization to unseen writers.
 
-Preprocessing accepts grayscale images and preserves their pixels: white padding
-to a common canvas, then an exact 90-degree clockwise rotation. No resizing or
-cropping occurs. Canvas dimensions are inferred from the selected images and CTC
-length requirements, or supplied with `--width` and `--height` (before rotation).
-Oversized images cause an error instead of silent downsampling. A large source
-image can therefore make every training tensor large; reduce batch size if needed.
-Lossless compression reduces file size, not image dimensions or model memory.
-`--png-dir data/standardized_words` optionally exports lossless PNGs. Model inputs
-are normalized to [0, 1] after rotation.
+Preprocessing accepts grayscale images and resizes them with LANCZOS to fit a
+128 x 32 canvas while preserving aspect ratio, then pads white and rotates exactly
+90 degrees clockwise. Override the canvas with `--width` and `--height` (before
+rotation). No full image scan is needed at startup. The default width grows when
+long labels require more CTC timesteps (420 for the current full CSV). An explicit
+width that is too small causes a clear error instead of invalid training loss.
+`--png-dir outputs/standardized_words` optionally exports the resized images as
+lossless PNGs with compression level 9. Resizing changes the original pixels;
+PNG compression preserves the resized result exactly. Model inputs are normalized
+to [0, 1] after rotation. Each bidirectional LSTM is followed by 15% dropout; the
+existing 20% dropout before the LSTMs remains. Saved metadata records resizing
+and dropout. Earlier models require their original preprocessing.
 
 Outputs go to `models/ctc_word/`: `word_recognition.keras`, `metadata.json`,
 `history.json`, and `validation_predictions.csv`. Load the model with

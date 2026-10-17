@@ -101,7 +101,7 @@ docker compose run --rm train --help
 ```
 
 The 8 GB RTX 5050 may need a smaller batch size than the default 8, especially
-with large unscaled input images. TensorFlow allocates GPU memory as needed.
+when overriding the default 128 x 32 resize canvas. TensorFlow allocates GPU memory as needed.
 The service exposes one GPU; this trainer does not implement distributed training.
 
 `data/` is mounted read-only. Outputs persist in the host's `models/ctc_word/`
