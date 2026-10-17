@@ -1,4 +1,4 @@
-"""Launch word training in the project's persistent .venv.
+"""Launch word training in the project's .venv or Docker interpreter.
 
 Edit the settings below, then run this file from your IDE or use python train.py.
 """
@@ -21,7 +21,8 @@ LIMIT = None  # Set to 100 for a quick trial; None trains on the full dataset.
 def main():
     root = Path(__file__).resolve().parent
     environment = root / ".venv"
-    python = environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    python = (Path(sys.executable) if os.environ.get("HTR_CONTAINER") == "1" else
+              environment / ("Scripts/python.exe" if os.name == "nt" else "bin/python"))
     if not python.is_file():
         print("Project environment is missing. Run: powershell -File setup_env.ps1", file=sys.stderr)
         return 1
@@ -36,10 +37,15 @@ def main():
         print(f"Set WORDS_DIR at the top of train.py to your IAM words folder.\n"
               f"Current location does not exist: {WORDS_DIR}", file=sys.stderr)
         return 1
-    return subprocess.call([
+    command = [
         str(python), str(root / "scripts/training/CTC_Word.py"),
         *arguments, *sys.argv[1:]
-    ], cwd=root)
+    ]
+    if os.environ.get("HTR_CONTAINER") == "1":
+        os.chdir(root)
+        # Replace the launcher so container termination reaches the trainer.
+        os.execv(str(python), command)
+    return subprocess.call(command, cwd=root)
 
 
 if __name__ == "__main__":

@@ -66,6 +66,16 @@ and overlap-score formulas remain; those overlap scores are not word error rate.
 
 ## Keras CTC word training
 
+For RTX 5050 GPU training in Docker and a portable image for future AWS use,
+see [the Docker guide](docs/DOCKER.md). Quick start after installing Docker Desktop
+with its WSL 2 backend:
+
+```powershell
+docker compose build
+docker compose run --rm --entrypoint python train -m docker.gpu_check
+docker compose run --rm train --limit 100 --epochs 1 --batch-size 2
+```
+
 `scripts/training/CTC_Word.py` trains three convolutional blocks followed by
 exactly two bidirectional LSTMs (128 then 64 units per direction), and a character
 logit head. Keras CTC loss and greedy decoding both use blank index 0. Labels
