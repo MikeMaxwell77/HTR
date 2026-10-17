@@ -102,3 +102,33 @@ from the existing segmentation model; it is not a drop-in replacement for `pred.
 
 Run checks with `python -m unittest discover -s tests -v`. The model training,
 decoding, and save/load smoke test requires TensorFlow and Keras.
+
+## Persistent Python environment and training launcher
+
+The project uses a local `.venv` with Python 3.12. It persists between terminal
+and editor sessions and is excluded from Git. To recreate or refresh it on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\setup_env.ps1
+```
+
+The setup script installs the exact versions in
+`scripts/training/requirements-lock.txt` (captured on Windows with Python 3.12).
+The broader dependency constraints remain in `scripts/training/requirements.txt`.
+
+Start training from the repository root; activation is not required:
+
+```powershell
+python train.py --words-dir "C:/datasets/IAM/words" --limit 100 --epochs 1
+python train.py --words-dir "C:/datasets/IAM/words" --epochs 50 --batch-size 8
+```
+
+`train.py` forwards all options to the CTC trainer using `.venv`'s interpreter.
+Relative dataset paths are resolved from your current working directory.
+Use `python train.py --help` for all options. Outputs default to `models/ctc_word/`.
+For IDE runs, select `.venv/Scripts/python.exe` as the Python interpreter.
+To run the checks with this environment:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
