@@ -63,3 +63,42 @@ Optional overrides: `--forms-csv`, `--model`, and `--output`. Importing the
 entry point does not start inference. Missing images and forms with no valid
 word crops are reported and skipped. The existing header/footer convention
 and overlap-score formulas remain; those overlap scores are not word error rate.
+
+## Keras CTC word training
+
+`scripts/training/CTC_Word.py` trains three convolutional blocks followed by
+exactly two bidirectional LSTMs (128 then 64 units per direction), and a character
+logit head. Keras CTC loss and greedy decoding both use blank index 0. Labels
+retain case, digits, and punctuation. See the [Keras CTC API](https://keras.io/api/ops/nn/#ctc_loss-function).
+
+```powershell
+python -m pip install -r scripts/training/requirements.txt
+python scripts/training/CTC_Word.py --words-dir "C:/datasets/IAM/words"
+```
+
+The CSV requires `image_path` (relative to `--words-dir`) and `target` columns.
+Use `--limit 100 --epochs 1` for a small trial. Images are loaded in batches.
+The seeded 80/20 split is by image, not by writer; validation accuracy does not
+measure generalization to unseen writers.
+
+Preprocessing accepts grayscale images and preserves their pixels: white padding
+to a common canvas, then an exact 90-degree clockwise rotation. No resizing or
+cropping occurs. Canvas dimensions are inferred from the selected images and CTC
+length requirements, or supplied with `--width` and `--height` (before rotation).
+Oversized images cause an error instead of silent downsampling. A large source
+image can therefore make every training tensor large; reduce batch size if needed.
+Lossless compression reduces file size, not image dimensions or model memory.
+`--png-dir data/standardized_words` optionally exports lossless PNGs. Model inputs
+are normalized to [0, 1] after rotation.
+
+Outputs go to `models/ctc_word/`: `word_recognition.keras`, `metadata.json`,
+`history.json`, and `validation_predictions.csv`. Load the model with
+`keras.models.load_model`, preprocess new images with
+`scripts.training.word_preprocessing.preprocess_image(path, width, height)` using
+the saved dimensions, and decode logits with
+`scripts.training.CTC_Word.decode_batch_predictions(logits, characters)` using the
+saved vocabulary. This model has a different preprocessing/vocabulary contract
+from the existing segmentation model; it is not a drop-in replacement for `pred.keras`.
+
+Run checks with `python -m unittest discover -s tests -v`. The model training,
+decoding, and save/load smoke test requires TensorFlow and Keras.

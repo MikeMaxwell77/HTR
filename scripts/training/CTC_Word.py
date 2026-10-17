@@ -1,351 +1,168 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Apr 15 23:19:06 2025
-
-@author: mikey
-"""
-
-# -*- coding: utf-8 -*-
-"""
-Created on Thu Apr 10 21:19:54 2025
-
-@author: mikey
-"""
-
+"""Train a Keras CNN + two BiLSTMs word recognizer with CTC loss."""
+import argparse
+import csv
+import json
+import os
 from pathlib import Path
+
+os.environ["KERAS_BACKEND"] = "tensorflow"
+import numpy as np
+
+if __package__:
+    from .word_preprocessing import preprocess_image, read_grayscale, standardize_image
+else:
+    from word_preprocessing import preprocess_image, read_grayscale, standardize_image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-import os
-os.environ["KERAS_BACKEND"] = "tensorflow"
-import numpy as np
-import pandas as pd
-import keras
-from keras import ops
-from keras.models import Sequential, Model
-from keras.layers import Dense, Dropout, Input, Conv2D, MaxPooling2D, Flatten
-from keras.layers import Reshape, LSTM, Bidirectional
-from keras.utils import to_categorical
-from sklearn.model_selection import train_test_split
-import cv2
-from sklearn.preprocessing import LabelEncoder
-import tensorflow as tf
-import matplotlib.pyplot as plt
-from keras.preprocessing import image
-import tensorflow as tf
-#set working directory
-os.chdir(r"C:\Users\mikey\OneDrive\Documents\USCB\Data Mining\Project")
 
-X_size=600
-Y_size=100
-#define the image preprocessing function
-def load_and_preprocess_image(image_path, target_size=(X_size, Y_size)):
-    try:
-        img = image.load_img("words/" + image_path, color_mode='grayscale', target_size=target_size)
-        img_array = image.img_to_array(img)
-        img_array = img_array / 255.0  # Normalize
-        return img_array
-    except Exception as e:
-        print(f"Error loading image {image_path}: {e}")
-        return None
+def read_records(csv_path, words_dir, limit=None):
+    with open(csv_path, encoding="utf-8-sig", newline="") as stream:
+        reader = csv.DictReader(stream)
+        if not {"image_path", "target"}.issubset(reader.fieldnames or []):
+            raise ValueError("CSV requires image_path and target columns")
+        records = [(str(words_dir / row["image_path"]), row["target"])
+                   for row in reader if row["image_path"] and row["target"]]
+    records = records[:limit] if limit else records
+    if len(records) < 2:
+        raise ValueError("At least two labeled images are required")
+    if len({path for path, _ in records}) != len(records):
+        raise ValueError("Duplicate image paths would leak across train/validation splits")
+    return records
 
-# CTC loss layer implementation
-class CTCLayer(keras.layers.Layer):
-    def __init__(self, name=None):
-        super().__init__(name=name)
-        self.loss_fn = tf.keras.backend.ctc_batch_cost
 
-    def call(self, inputs):
-        y_true, y_pred, input_length, label_length = inputs
-        batch_loss = self.loss_fn(y_true, y_pred, input_length, label_length)
-        self.add_loss(batch_loss)
-        return y_pred
+def canvas_size(records, width=None, height=None):
+    sizes = [read_grayscale(path).size for path, _ in records]
+    # CTC needs an extra timestep between consecutive identical characters.
+    min_steps = max(len(word) + sum(a == b for a, b in zip(word, word[1:]))
+                    for _, word in records)
+    required_width = max(max(w for w, _ in sizes), min_steps * 4)
+    required_height = max(h for _, h in sizes)
+    width = width if width is not None else (required_width + 3) // 4 * 4
+    height = height if height is not None else (required_height + 7) // 8 * 8
+    if width < required_width or height < required_height or width % 4 or height % 8:
+        raise ValueError(f"Canvas requires width >= {required_width} (multiple of 4) and "
+                         f"height >= {required_height} (multiple of 8); no resizing/cropping is allowed")
+    return width, height
 
-#main execution
-print("Loading and preparing data...")
 
-#load dataset
-df = pd.read_csv(str(PROJECT_ROOT / "data/word_dataset_info.csv"))
+def build_ctc_model(width, height, num_characters, lstm_units=128):
+    import keras
+    from keras import layers, ops
 
-#drop empty rows
-df = df.dropna(subset=['target'])
-#make df target all lowercase
-df['target'] = df['target'].str.lower()
+    if lstm_units < 2 or lstm_units % 2:
+        raise ValueError("lstm_units must be a positive even integer >= 2")
+    image = layers.Input((width, height, 1), name="image")
+    x = image
+    for filters, pool in [(32, (2, 2)), (64, (2, 2)), (128, (1, 2))]:
+        x = layers.Conv2D(filters, 3, padding="same", activation="relu")(x)
+        x = layers.MaxPooling2D(pool)(x)
+    x = layers.Reshape((width // 4, height // 8 * 128))(x)
+    x = layers.Dense(128, activation="relu")(x)
+    x = layers.Dropout(0.2)(x)
+    x = layers.Bidirectional(layers.LSTM(lstm_units, return_sequences=True))(x)
+    x = layers.Bidirectional(layers.LSTM(lstm_units // 2, return_sequences=True))(x)
+    logits = layers.Dense(num_characters + 1, name="character_logits")(x)
+    model = keras.Model(image, logits, name="word_recognizer")
 
-df = df[df['target'].str.match(r'^[a-z]+$')]
-#make remove all the special character words
-# Filter for the 4 target words
-#values_to_keep = ['the', 'of', 'to', 'and']
-filtered_df = df#['target'].isin(values_to_keep)
-"""
-we need to set the ctc loss function max and from here we have it be 17
-////////////////////////////
-max_length = 0
-for i in range(len(filtered_df)):
-    if(max_length<len(filtered_df['target'].iloc[i])):
-        max_length = len(filtered_df['target'].iloc[i])
-////////////////////////
-max length is 17
-        """
-    
+    def ctc_loss(labels, predictions):
+        labels = ops.cast(labels, "int32")
+        lengths = ops.sum(ops.cast(labels != 0, "int32"), axis=1)
+        output_lengths = ops.full((ops.shape(predictions)[0],), width // 4, dtype="int32")
+        return ops.ctc_loss(labels, predictions, lengths, output_lengths, mask_index=0)
 
-# Load and preprocess all images
-X = []
-valid_indices = []
-#add image path to valid_indices
-for i, image_path in enumerate(filtered_df["image_path"]):
-    #test and limit this on 
-    if i >= 100:
-       break
-    print(i)
-    img_array = load_and_preprocess_image(image_path)
-    if img_array is not None:
-        X.append(img_array)
-        valid_indices.append(i)
+    model.compile(optimizer=keras.optimizers.Adam(clipnorm=5.0), loss=ctc_loss)
+    return model
 
-X = np.array(X)
-print(f"Loaded {len(X)} valid images")
 
-#create character map for CTC (including blank for CTC)
-characters = ['-'] + list('abcdefghijklmnopqrstuvwxyz')  # '-' is the blank character
-char_to_num = {char: i for i, char in enumerate(characters)}
-num_to_char = {i: char for i, char in enumerate(characters)}
-num_chars = len(characters)
+def make_dataset(records, vocabulary, width, height, batch_size, shuffle=False, seed=42):
+    import tensorflow as tf
+    char_to_id = {char: i + 1 for i, char in enumerate(vocabulary)}
+    max_label = max(len(word) for _, word in records)
 
-print(f"Character set size: {num_chars}")
+    def generate():
+        for path, word in records:
+            labels = np.zeros(max_label, dtype=np.int32)
+            labels[:len(word)] = [char_to_id[c] for c in word]
+            yield preprocess_image(path, width, height), labels
 
-#encode targets as character sequences
-def encode_target(word):
-    return [char_to_num[c] for c in word]
+    data = tf.data.Dataset.from_generator(generate, output_signature=(
+        tf.TensorSpec((width, height, 1), tf.float32),
+        tf.TensorSpec((max_label,), tf.int32)))
+    if shuffle:
+        data = data.shuffle(min(len(records), 256), seed=seed)
+    return data.batch(batch_size).prefetch(1)
 
-# get word labels
-words = filtered_df.iloc[valid_indices]["target"].values
-y = [encode_target(word) for word in words]
 
-# get the maximum length of any word (17)
-max_length = max(len(word) for word in y)
-print(f"Maximum word length: {max_length}")
+def decode_batch_predictions(logits, vocabulary):
+    import keras
+    lengths = np.full(len(logits), logits.shape[1], dtype=np.int32)
+    decoded, _ = keras.ops.ctc_decode(logits, lengths, mask_index=0)
+    return ["".join(vocabulary[i - 1] for i in row if i > 0)
+            for row in keras.ops.convert_to_numpy(decoded[0])]
 
-# pad sequences to same length for batch processing
-y_padded = tf.keras.preprocessing.sequence.pad_sequences(
-    y, maxlen=max_length, padding='post', value=char_to_num['-']
-)
 
-# train-test split
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y_padded, test_size=0.2, random_state=42
-)
-
-print(f"Training set: {len(X_train)} samples")
-print(f"Test set: {len(X_test)} samples")
-
-# build CTC model
-def build_ctc_model(input_shape=(X_size, Y_size, 1), num_chars=len(characters)):
-    # Input
-    input_img = Input(shape=input_shape, name="image")
-    
-    # CNN feature extraction
-    x = Conv2D(32, (3,3), activation='relu', padding='same')(input_img)
-    x = MaxPooling2D((2,2))(x)
-    x = Dropout(0.25)(x)
-    x = Conv2D(64, (3,3), activation='relu', padding='same')(x)
-    x = MaxPooling2D((2,2))(x)
-    x = Dropout(0.25)(x)
-    x = Conv2D(128, (3,3), activation='relu', padding='same')(x)
-    x = MaxPooling2D((2,2))(x)
-    
-    # Calculate new dimensions after pooling
-    new_height = input_shape[0] // 8
-    new_width = input_shape[1] // 8
-    
-    # Reshape to sequences - treat each row as a sequence step
-    x = Reshape((new_height, new_width * 128))(x)
-    
-    # RNN layers for sequence processing
-    x = Bidirectional(LSTM(128, return_sequences=True))(x)
-    x = Bidirectional(LSTM(64, return_sequences=True))(x)
-    x = Bidirectional(LSTM(32, return_sequences=True))(x)
-    
-    # Output layer with softmax over characters at each time step
-    outputs = Dense(num_chars, activation='softmax', name="char_output")(x)
-    
-    # Define the prediction model
-    prediction_model = Model(inputs=input_img, outputs=outputs)
-    
-    # Define inputs for CTC loss
-    labels = Input(name='labels', shape=(None,), dtype='float32')
-    input_length = Input(name='input_length', shape=(1,), dtype='int64')
-    label_length = Input(name='label_length', shape=(1,), dtype='int64')
-    
-    # Define CTC loss
-    ctc_output = CTCLayer(name='ctc_loss')([labels, outputs, input_length, label_length])
-    
-    # Training model with CTC loss
-    training_model = Model(
-        inputs=[input_img, labels, input_length, label_length],
-        outputs=ctc_output
-    )
-    
-    # Compile model with dummy loss since the real loss is added in the CTC layer
-    training_model.compile(optimizer='adam')
-    
-    return training_model, prediction_model
-
-#create the model
-print("Building and compiling model...")
-training_model, prediction_model = build_ctc_model(input_shape=(X_size, Y_size, 1))
-
-#print model summary
-training_model.summary()
-
-#batch size and epochs
-batch_size = 10
-epochs = 50
-
-#prepare data for training
-def train_generator():
-    while True:
-        indices = np.arange(len(X_train))
-        np.random.shuffle(indices)
-        
-        for i in range(0, len(indices), batch_size):
-            batch_indices = indices[i:i+batch_size]
-            batch_x = X_train[batch_indices].reshape(-1, X_size, Y_size, 1)
-            batch_y = y_train[batch_indices]
-            batch_y = batch_y.astype(np.int32)
-            
-            # Calculate input lengths
-            # This is the number of time steps in the output sequence from the CNN+RNN
-            input_length = np.ones((len(batch_indices), 1), dtype=np.int32) * (X_size // 8)
-            
-            # Calculate label lengths
-            label_length = np.array([[np.sum(l != char_to_num['-'])] for l in batch_y], dtype=np.int32)
-            
-            # Yield the batch data
-            inputs = {
-                'image': batch_x,
-                'labels': batch_y,
-                'input_length': input_length,
-                'label_length': label_length
-            }
-            # Dummy output for the CTC loss function
-            outputs = {'ctc_loss': np.zeros((len(batch_indices),))}
-            
-            yield (inputs, outputs)
-
-#prepare data for validation
-def val_generator():
-    while True:
-        indices = np.arange(len(X_test))
-        
-        for i in range(0, len(indices), batch_size):
-            batch_indices = indices[i:i+batch_size]
-            batch_x = X_train[batch_indices].reshape(-1, X_size, Y_size, 1)
-            batch_y = y_test[batch_indices]
-            batch_y = batch_y.astype(np.int32)
-            
-            # Calculate input lengths
-            input_length = np.ones((len(batch_indices), 1), dtype=np.int32) * (X_size // 8)
-            
-            # Calculate label lengths
-            label_length = np.array([[np.sum(l != char_to_num['-'])] for l in batch_y], dtype=np.int32)
-            
-            # Yield the batch data
-            inputs = {
-                'image': batch_x,
-                'labels': batch_y,
-                'input_length': input_length,
-                'label_length': label_length
-            }
-            # Dummy output for the CTC loss function
-            outputs = {'ctc_loss': np.zeros((len(batch_indices),))}
-            
-            yield (inputs, outputs)
-
-#train the model
-print("\n//////////////////////fit//////////////////////")
-history = training_model.fit(
-    train_generator(),
-    steps_per_epoch=len(X_train) // batch_size,
-    validation_data=val_generator(),
-    validation_steps=len(X_test) // batch_size,
-    epochs=epochs
-)
-
-#implement CTC decoder for prediction
-def decode_batch_predictions(pred):
-    """
-    Decode the output of the CTC model to get word predictions
-    """
-    input_len = np.ones(pred.shape[0]) * pred.shape[1]
-    results = tf.keras.backend.ctc_decode(pred, input_length=input_len, greedy=True)[0][0]
-    # Convert indices to characters
-    output_text = []
-    for res in results:
-        decoded = []
-        for c in res:
-            if c < 0:
-                # Skip invalid values
-                continue
-            # Convert index to character
-            c = int(c)
-            if c > 0:  # Skip the blank character
-                decoded.append(num_to_char[c])
-        output_text.append(''.join(decoded))
-    
-    return output_text
-
-# Evaluate the model
-def evaluate_model():
-    print("Evaluating model...")
-    # Get predictions
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--words-dir", type=Path, required=True)
+    parser.add_argument("--csv", type=Path, default=PROJECT_ROOT / "data/word_dataset_info.csv")
+    parser.add_argument("--output-dir", type=Path, default=PROJECT_ROOT / "models/ctc_word")
+    parser.add_argument("--png-dir", type=Path, help="Optional standardized, losslessly compressed PNG export")
+    parser.add_argument("--width", type=int, help="Horizontal canvas width; auto-detected by default")
+    parser.add_argument("--height", type=int, help="Horizontal canvas height; auto-detected by default")
+    parser.add_argument("--lstm-units", type=int, default=128)
+    parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--limit", type=int, help="Optional small-run image limit")
+    parser.add_argument("--validation-fraction", type=float, default=0.2)
+    parser.add_argument("--seed", type=int, default=42)
+    args = parser.parse_args()
+    if not 0 < args.validation_fraction < 1 or min(args.batch_size, args.epochs) < 1:
+        parser.error("Use positive batch size/epochs and a validation fraction between 0 and 1")
+    if args.limit is not None and args.limit < 2:
+        parser.error("--limit must be >= 2")
+    records = read_records(args.csv, args.words_dir, args.limit)
+    width, height = canvas_size(records, args.width, args.height)
+    vocabulary = sorted(set("".join(word for _, word in records)))
+    print(f"Canvas: {width} x {height}; rotated input: ({width}, {height}, 1)")
+    if args.png_dir:
+        for index, (path, _) in enumerate(records):
+            standardize_image(path, width, height, args.png_dir / f"{index:08d}.png")
+    import keras
+    keras.utils.set_random_seed(args.seed)
+    indices = np.random.default_rng(args.seed).permutation(len(records))
+    n_val = min(len(records) - 1, max(1, round(len(records) * args.validation_fraction)))
+    validation = [records[i] for i in indices[:n_val]]
+    training = [records[i] for i in indices[n_val:]]
+    train_data = make_dataset(training, vocabulary, width, height, args.batch_size, True, args.seed)
+    val_data = make_dataset(validation, vocabulary, width, height, args.batch_size)
+    model = build_ctc_model(width, height, len(vocabulary), args.lstm_units)
+    model.summary()
+    history = model.fit(train_data, validation_data=val_data, epochs=args.epochs,
+                        callbacks=[keras.callbacks.EarlyStopping(
+                            monitor="val_loss", patience=10, restore_best_weights=True)])
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    # Save an uncompiled inference model: no custom loss needed when loading.
+    keras.Model(model.input, model.output).save(args.output_dir / "word_recognition.keras")
+    metadata = {"characters": vocabulary, "blank_index": 0, "width": width, "height": height,
+                "rotation": "90 degrees clockwise", "normalization": "divide by 255",
+                "padding": "white; left-aligned, vertically centered before rotation",
+                "lstm_units": [args.lstm_units, args.lstm_units // 2],
+                "output": "logits", "seed": args.seed,
+                "training": training, "validation": validation}
+    (args.output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    (args.output_dir / "history.json").write_text(json.dumps(history.history, indent=2), encoding="utf-8")
     predictions = []
-    ground_truth = []
-    
-    for i in range(0, len(X_test), batch_size):
-        batch_x = X_test[i:i+batch_size]
-        batch_y = y_test[i:i+batch_size]
-        
-        # Get predictions
-        pred = prediction_model.predict(batch_x)
-        decoded_preds = decode_batch_predictions(pred)
-        
-        # Get ground truth
-        for j in range(len(batch_y)):
-            # Convert label to text
-            label = ''.join([num_to_char[c] for c in batch_y[j] if c > 0])
-            ground_truth.append(label)
-        
-        # Add predictions
-        predictions.extend(decoded_preds)
-    
-    # Calculate accuracy
-    accurate = 0
-    for i in range(len(ground_truth)):
-        if ground_truth[i] == predictions[i]:
-            accurate += 1
-    
-    accuracy = accurate / len(ground_truth)
-    print(f"Word Recognition Accuracy: {accuracy:.4f}")
-    
-    # Print some examples
-    print("\nSample Predictions:")
-    for i in range(min(10, len(predictions))):
-        print(f"Predicted: '{predictions[i]}', True: '{ground_truth[i]}'")
+    for images, _ in val_data:
+        predictions.extend(decode_batch_predictions(model.predict_on_batch(images), vocabulary))
+    with (args.output_dir / "validation_predictions.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["image_path", "target", "prediction"])
+        writer.writerows((path, word, prediction) for (path, word), prediction in zip(validation, predictions))
+    accuracy = sum(word == pred for (_, word), pred in zip(validation, predictions)) / len(validation)
+    print(f"Validation exact word accuracy: {accuracy:.4f}")
+    print(f"Model and preprocessing metadata saved to {args.output_dir}")
 
-# Evaluate the model
-evaluate_model()
 
-# Plot training history
-plt.figure(figsize=(12, 4))
-plt.plot(history.history['loss'], label='Training Loss')
-plt.plot(history.history['val_loss'], label='Validation Loss')
-plt.title('CTC Loss During Training')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.legend()
-plt.show()
-
-# Save the prediction model
-prediction_model.save(str(PROJECT_ROOT / "models/word_recognition_model.keras"))
-print(f"Model saved as {PROJECT_ROOT / 'models/word_recognition_model.keras'}")
+if __name__ == "__main__":
+    main()
