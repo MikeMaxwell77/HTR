@@ -143,5 +143,52 @@ docker run --rm --init --gpus '"device=0"' --shm-size=2g \
 Use mounted storage for input/output and stage data from S3 outside the
 container if needed. No AWS credentials, datasets, model files, or `.venv` are
 included in the build context. No AWS resources are created by this setup.
-The trainer saves its final model after fitting; interrupted/Spot runs currently
-have no periodic checkpoint/resume support.
+The trainer saves a full checkpoint after each epoch, including optimizer state.
+Use `--resume` with the same output directory, dataset and model settings after
+an interruption. Epoch targets are total counts: resuming epoch 20 with
+`--epochs 50` trains epochs 21 through 50. Shuffle/dropout random streams are
+reseeded on restart, so continuation is not bit-for-bit identical.
+
+## Background training with epoch checkpoints
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Continuous
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Logs
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Stop
+```
+
+`Continuous` starts the `htr-training` container in the background. It uses batch
+size 8, a target of 1,000 total epochs, and disables early stopping. Edit
+`compose.continuous.yaml` to change these settings. Closing the terminal leaves
+training running; Ctrl+C while viewing `Logs` only exits the log viewer.
+The computer must remain awake, powered, and running Docker Desktop for training
+to continue. This does not reserve 24 hours of GPU time or prevent Windows sleep.
+
+Files persist in `models/ctc_continuous/`:
+
+- `checkpoints/epoch-000001.keras`, etc.: full training checkpoints, saved each
+  epoch. The latest five are retained; `--keep-checkpoints 0` keeps every epoch.
+- `best.keras`: portable inference model with the lowest validation loss so far.
+- `metadata.json`: vocabulary, preprocessing, model configuration and data split,
+  written before training starts.
+- `history.json` and `training.csv`: per-epoch loss and validation loss.
+- `word_recognition.keras` and `validation_predictions.csv`: final exports after
+  the training run completes.
+
+`Continuous` resumes the latest completed epoch automatically when checkpoints
+exist. A failed process is retried up to three times by Docker; after a reboot or
+a manual `Stop`, run `Continuous` again. Stopping midway through an epoch loses
+that epoch's work. A checkpoint is written to a temporary file and renamed only
+after its model and epoch state are saved. A changed dataset, split, vocabulary,
+preprocessing or model configuration is rejected on resume; use a new output
+directory for a different experiment. Run only one trainer per output directory.
+
+For foreground training, checkpoints are also enabled by default:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Train --resume --epochs 100 --early-stopping-patience 0
+```
+
+The default foreground patience is still 10 epochs. Its patience counter restarts
+when resuming; the best inference model is tracked across restarts. Earlier model
+exports without training checkpoints cannot resume optimizer/epoch state.

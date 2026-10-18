@@ -1,6 +1,6 @@
 # Examples: .\docker.ps1 Setup; .\docker.ps1 Smoke; .\docker.ps1 Train --epochs 50
 param(
-    [ValidateSet('Setup', 'Check', 'Smoke', 'Train')]
+    [ValidateSet('Setup', 'Check', 'Smoke', 'Train', 'Continuous', 'Logs', 'Stop')]
     [string]$Action = 'Setup',
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$TrainingArguments
@@ -32,7 +32,7 @@ Push-Location $PSScriptRoot
 try {
     & $dockerExecutable info --format '{{.OSType}}'
     if ($LASTEXITCODE -ne 0) { throw 'Start Docker Desktop with its Linux engine, then retry.' }
-    if ($Action -ne 'Check') { Invoke-Docker compose build }
+    if ($Action -in @('Setup', 'Smoke', 'Train')) { Invoke-Docker compose build }
     switch ($Action) {
         'Setup' { Invoke-Docker compose run --rm --entrypoint python train -m docker.gpu_check }
         'Check' { Invoke-Docker compose run --rm --entrypoint python train -m docker.gpu_check }
@@ -42,6 +42,9 @@ try {
             Invoke-Docker compose run --rm train --limit 100 --epochs 1 --batch-size 2 --output-dir "/app/models/$runName"
         }
         'Train' { Invoke-Docker compose run --rm train @TrainingArguments }
+        'Continuous' { Invoke-Docker compose -f compose.yaml -f compose.continuous.yaml up -d --build train }
+        'Logs' { Invoke-Docker compose -f compose.yaml -f compose.continuous.yaml logs -f --tail 40 train }
+        'Stop' { Invoke-Docker compose -f compose.yaml -f compose.continuous.yaml stop -t 60 train }
     }
 }
 finally { Pop-Location }

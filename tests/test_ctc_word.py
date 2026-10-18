@@ -7,6 +7,7 @@ import numpy as np
 from PIL import Image
 from scripts.training.word_preprocessing import standardize_image, preprocess_image
 from scripts.training.CTC_Word import canvas_size, build_ctc_model, decode_batch_predictions
+from scripts.training.CTC_Word import make_epoch_saver, restore_checkpoint, epoch_checkpoints
 
 
 class WordPipelineTests(unittest.TestCase):
@@ -70,6 +71,35 @@ class WordPipelineTests(unittest.TestCase):
             loaded = keras.models.load_model(path)
             np.testing.assert_allclose(model(images, training=False).numpy(),
                                        loaded(images, training=False).numpy(), atol=1e-6)
+
+    @unittest.skipUnless(importlib.util.find_spec("tensorflow") and importlib.util.find_spec("keras"),
+                         "TensorFlow/Keras are not installed")
+    def test_epoch_checkpoint_restores_optimizer_and_retains_latest(self):
+        model = build_ctc_model(20, 8, 2, lstm_units=8)
+        images = np.ones((2, 20, 8, 1), dtype=np.float32)
+        labels = np.array([[1, 1], [2, 0]], dtype=np.int32)
+        model.train_on_batch(images, labels)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            saver = make_epoch_saver(output, "same-data", keep=1)
+            saver.set_model(model)
+            saver.on_epoch_end(0, {"loss": 2.0, "val_loss": 3.0})
+            restored, state = restore_checkpoint(
+                build_ctc_model(20, 8, 2, lstm_units=8), output, "same-data")
+            self.assertEqual(state["completed_epoch"], 1)
+            self.assertEqual(int(restored.optimizer.iterations.numpy()), 1)
+            for original, loaded in zip(model.optimizer.variables, restored.optimizer.variables):
+                np.testing.assert_array_equal(original.numpy(), loaded.numpy())
+            with self.assertRaises(ValueError):
+                restore_checkpoint(model, output, "different-data")
+            restored.train_on_batch(images, labels)
+            saver = make_epoch_saver(output, "same-data", state, keep=1)
+            saver.set_model(restored)
+            saver.on_epoch_end(1, {"loss": 1.5, "val_loss": 2.0})
+            self.assertEqual(int(restored.optimizer.iterations.numpy()), 2)
+            self.assertEqual([p.name for p in epoch_checkpoints(output)], ["epoch-000002.keras"])
+            self.assertEqual(saver.state["history"]["loss"], [2.0, 1.5])
+            self.assertTrue((output / "best.keras").is_file())
 
 
 if __name__ == "__main__":

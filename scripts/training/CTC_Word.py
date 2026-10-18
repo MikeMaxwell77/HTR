@@ -3,6 +3,8 @@ import argparse
 import csv
 import json
 import os
+import hashlib
+import zipfile
 from pathlib import Path
 
 os.environ["KERAS_BACKEND"] = "tensorflow"
@@ -14,6 +16,72 @@ else:
     from word_preprocessing import preprocess_image, read_grayscale, standardize_image
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+def checkpoint_state(path):
+    with zipfile.ZipFile(path) as archive:
+        return json.loads(archive.read("assets/htr_state.json"))
+
+
+def epoch_checkpoints(output_dir):
+    return sorted((output_dir / "checkpoints").glob("epoch-[0-9]*.keras"))
+
+
+def restore_checkpoint(model, output_dir, signature):
+    import keras
+    paths = epoch_checkpoints(output_dir)
+    if not paths:
+        raise ValueError(f"No epoch checkpoints found in {output_dir / 'checkpoints'}")
+    path = paths[-1]
+    state = checkpoint_state(path)
+    if state["signature"] != signature:
+        raise ValueError("Checkpoint dataset, split, vocabulary or model settings differ. Use the original settings or a new output directory.")
+    # Recreate this run's width-dependent loss while restoring Adam's saved state.
+    model = keras.models.load_model(path, custom_objects={"ctc_loss": model.loss})
+    print(f"Resumed {path}: {state['completed_epoch']} completed epochs; "
+          f"optimizer step {int(model.optimizer.iterations.numpy())}", flush=True)
+    return model, state
+
+
+def make_epoch_saver(output_dir, signature, state=None, keep=5):
+    import keras
+
+    class EpochSaver(keras.callbacks.Callback):
+        def __init__(self):
+            super().__init__()
+            self.state = state or {"completed_epoch": 0, "history": {}, "best_val_loss": None}
+
+        def on_epoch_end(self, epoch, logs=None):
+            logs = {key: float(value) for key, value in (logs or {}).items()}
+            if not all(np.isfinite(value) for value in logs.values()):
+                raise RuntimeError("Non-finite training metrics; keeping the previous valid checkpoint")
+            for key, value in logs.items():
+                self.state["history"].setdefault(key, []).append(value)
+            previous = self.state["best_val_loss"]
+            current = logs.get("val_loss", float("inf"))
+            improved = np.isfinite(current) and (previous is None or current < previous)
+            if improved:
+                temporary_best = output_dir / ".best.pending.keras"
+                keras.Model(self.model.input, self.model.output).save(temporary_best)
+                temporary_best.replace(output_dir / "best.keras")
+                self.state["best_val_loss"] = current
+            self.state.update(completed_epoch=epoch + 1, signature=signature)
+            directory = output_dir / "checkpoints"
+            directory.mkdir(parents=True, exist_ok=True)
+            pending = directory / ".epoch.pending.keras"
+            # Full compiled model includes weights and Adam slots/iteration count.
+            self.model.save(pending)
+            with zipfile.ZipFile(pending, "a") as archive:
+                archive.writestr("assets/htr_state.json", json.dumps(self.state))
+            destination = directory / f"epoch-{epoch + 1:06d}.keras"
+            pending.replace(destination)
+            (output_dir / "history.json").write_text(json.dumps(self.state["history"], indent=2), encoding="utf-8")
+            if keep:
+                for obsolete in epoch_checkpoints(output_dir)[:-keep]:
+                    obsolete.unlink()
+            print(f"\nSaved epoch {epoch + 1}: {destination}", flush=True)
+
+    return EpochSaver()
 
 
 def read_records(csv_path, words_dir, limit=None):
@@ -118,11 +186,19 @@ def main():
     parser.add_argument("--limit", type=int, help="Optional small-run image limit")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--resume", action="store_true", help="Resume the latest completed epoch in output-dir")
+    parser.add_argument("--resume-if-available", action="store_true", help="Resume if checkpoints exist; otherwise start a new run")
+    parser.add_argument("--keep-checkpoints", type=int, default=5, help="Keep this many latest epoch checkpoints; 0 keeps all")
+    parser.add_argument("--early-stopping-patience", type=int, default=10, help="Stop after this many epochs without improvement; 0 disables")
     args = parser.parse_args()
     if not 0 < args.validation_fraction < 1 or min(args.batch_size, args.epochs) < 1:
         parser.error("Use positive batch size/epochs and a validation fraction between 0 and 1")
     if args.limit is not None and args.limit < 2:
         parser.error("--limit must be >= 2")
+    if min(args.keep_checkpoints, args.early_stopping_patience) < 0:
+        parser.error("Checkpoint retention and early stopping patience must be >= 0")
+    if epoch_checkpoints(args.output_dir) and not (args.resume or args.resume_if_available):
+        parser.error("Output directory already has checkpoints. Use --resume or a new --output-dir")
     records = read_records(args.csv, args.words_dir, args.limit)
     width, height = canvas_size(records, args.width, args.height)
     vocabulary = sorted(set("".join(word for _, word in records)))
@@ -139,13 +215,6 @@ def main():
     train_data = make_dataset(training, vocabulary, width, height, args.batch_size, True, args.seed)
     val_data = make_dataset(validation, vocabulary, width, height, args.batch_size)
     model = build_ctc_model(width, height, len(vocabulary), args.lstm_units)
-    model.summary()
-    history = model.fit(train_data, validation_data=val_data, epochs=args.epochs,
-                        callbacks=[keras.callbacks.EarlyStopping(
-                            monitor="val_loss", patience=10, restore_best_weights=True)])
-    args.output_dir.mkdir(parents=True, exist_ok=True)
-    # Save an uncompiled inference model: no custom loss needed when loading.
-    keras.Model(model.input, model.output).save(args.output_dir / "word_recognition.keras")
     metadata = {"characters": vocabulary, "blank_index": 0, "width": width, "height": height,
                 "rotation": "90 degrees clockwise", "normalization": "divide by 255",
                 "padding": "white; left-aligned, vertically centered before rotation",
@@ -155,8 +224,27 @@ def main():
                 "lstm_units": [args.lstm_units, args.lstm_units // 2],
                 "output": "logits", "seed": args.seed,
                 "training": training, "validation": validation}
+    signature = hashlib.sha256(json.dumps(metadata, sort_keys=True).encode("utf-8")).hexdigest()
+    state = None
+    if args.resume or (args.resume_if_available and epoch_checkpoints(args.output_dir)):
+        model, state = restore_checkpoint(model, args.output_dir, signature)
+    initial_epoch = state["completed_epoch"] if state else 0
+    if initial_epoch >= args.epochs:
+        print(f"Already completed {initial_epoch} epochs (target: {args.epochs}).")
+        return
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     (args.output_dir / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    (args.output_dir / "history.json").write_text(json.dumps(history.history, indent=2), encoding="utf-8")
+    saver = make_epoch_saver(args.output_dir, signature, state, args.keep_checkpoints)
+    callbacks = [keras.callbacks.TerminateOnNaN(), saver,
+                 keras.callbacks.CSVLogger(str(args.output_dir / "training.csv"), append=bool(state))]
+    if args.early_stopping_patience:
+        callbacks.append(keras.callbacks.EarlyStopping(
+            monitor="val_loss", patience=args.early_stopping_patience, restore_best_weights=True))
+    model.summary()
+    model.fit(train_data, validation_data=val_data, epochs=args.epochs,
+              initial_epoch=initial_epoch, callbacks=callbacks)
+    # Portable inference export; epoch checkpoints retain optimizer state separately.
+    keras.Model(model.input, model.output).save(args.output_dir / "word_recognition.keras")
     predictions = []
     for images, _ in val_data:
         predictions.extend(decode_batch_predictions(model.predict_on_batch(images), vocabulary))

@@ -117,6 +117,20 @@ the saved dimensions, and decode logits with
 saved vocabulary. This model has a different preprocessing/vocabulary contract
 from the existing segmentation model; it is not a drop-in replacement for `pred.keras`.
 
+Full checkpoints now save after every epoch (latest five retained), alongside
+`best.keras` for the lowest validation loss. Use `--resume` to continue with the
+saved optimizer state and completed epoch; use a new output directory for changed
+data/model settings. For background GPU training with automatic resume, a target
+of 1,000 epochs and early stopping disabled:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Continuous
+```
+
+Keep the computer awake and Docker running. See [checkpoint and background run
+instructions](docs/DOCKER.md#background-training-with-epoch-checkpoints) for logs,
+stopping, retention and saved file locations.
+
 Run checks with `python -m unittest discover -s tests -v`. The model training,
 decoding, and save/load smoke test requires TensorFlow and Keras.
 
