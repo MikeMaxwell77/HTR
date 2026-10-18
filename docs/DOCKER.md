@@ -154,6 +154,7 @@ reseeded on restart, so continuation is not bit-for-bit identical.
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Continuous
 powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Logs
+powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Status
 powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Stop
 ```
 
@@ -161,6 +162,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\docker.ps1 Stop
 size 8, a target of 1,000 total epochs, and disables early stopping. Edit
 `compose.continuous.yaml` to change these settings. Closing the terminal leaves
 training running; Ctrl+C while viewing `Logs` only exits the log viewer.
+`Logs` follows only new output so it does not replay the large Keras progress-bar
+history. Output may arrive in chunks. `Status` returns container resource usage
+and host GPU usage immediately without waiting for a new log entry.
 The computer must remain awake, powered, and running Docker Desktop for training
 to continue. This does not reserve 24 hours of GPU time or prevent Windows sleep.
 

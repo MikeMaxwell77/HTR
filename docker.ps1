@@ -1,6 +1,6 @@
 # Examples: .\docker.ps1 Setup; .\docker.ps1 Smoke; .\docker.ps1 Train --epochs 50
 param(
-    [ValidateSet('Setup', 'Check', 'Smoke', 'Train', 'Continuous', 'Logs', 'Stop')]
+    [ValidateSet('Setup', 'Check', 'Smoke', 'Train', 'Continuous', 'Logs', 'Status', 'Stop')]
     [string]$Action = 'Setup',
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$TrainingArguments
@@ -43,7 +43,17 @@ try {
         }
         'Train' { Invoke-Docker compose run --rm train @TrainingArguments }
         'Continuous' { Invoke-Docker compose -f compose.yaml -f compose.continuous.yaml up -d --build train }
-        'Logs' { Invoke-Docker compose -f compose.yaml -f compose.continuous.yaml logs -f --tail 40 train }
+        'Logs' {
+            Write-Host 'Following NEW training output. It may arrive in chunks. Ctrl+C exits this viewer; training continues.'
+            Invoke-Docker logs --follow --tail 0 htr-training
+        }
+        'Status' {
+            Invoke-Docker inspect htr-training --format '{{.State.Status}} (restarts: {{.RestartCount}})'
+            Invoke-Docker stats --no-stream htr-training
+            if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
+                & nvidia-smi --query-gpu=name,utilization.gpu,memory.used,memory.total --format=csv
+            }
+        }
         'Stop' { Invoke-Docker compose -f compose.yaml -f compose.continuous.yaml stop -t 60 train }
     }
 }
