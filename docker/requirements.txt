@@ -1,0 +1,4 @@
+# TensorFlow, CUDA and NumPy are supplied together by the NVIDIA base image.
+# Keras 3 supplies keras.ops.ctc_loss/ctc_decode used by this project's trainer.
+keras==3.8.0
+Pillow==11.1.0

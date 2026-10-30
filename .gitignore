@@ -1,0 +1,80 @@
+# Local datasets (preserve existing exclusion)
+data/*
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.venv*/
+
+# Packaging and build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# Test coverage and tooling
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+junit.xml
+.tox/
+.nox/
+.hypothesis/
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+*.local
+
+# Editors and temporary files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+
+# Operating system files
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Logs and training runs
+*.log
+logs/
+runs/
+wandb/
+mlruns/
+lightning_logs/
+.tensorboard/
+events.out.tfevents.*
+checkpoints/
+
+# Generated models and predictions (existing tracked files stay tracked)
+models/*
+outputs/*
+!models/.gitkeep
+!outputs/.gitkeep

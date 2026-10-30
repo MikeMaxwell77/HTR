@@ -1,0 +1,28 @@
+services:
+  train:
+    image: ${HTR_IMAGE:-htr-training:local}
+    platform: linux/amd64
+    build:
+      context: .
+    init: true
+    shm_size: "2gb"
+    volumes:
+      - type: bind
+        source: ${HTR_DATA_DIR:-./data}
+        target: /app/data
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${HTR_MODELS_DIR:-./models}
+        target: /app/models
+      - type: bind
+        source: ${HTR_OUTPUTS_DIR:-./outputs}
+        target: /app/outputs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

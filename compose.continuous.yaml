@@ -1,0 +1,15 @@
+# Run together with compose.yaml. Checkpoints survive restarts in the models mount.
+services:
+  train:
+    container_name: htr-training
+    restart: "on-failure:3"
+    command:
+      - --epochs
+      - "1000"
+      - --batch-size
+      - "8"
+      - --early-stopping-patience
+      - "0"
+      - --resume-if-available
+      - --output-dir
+      - /app/models/ctc_continuous

@@ -1,0 +1,12 @@
+# Allow only the training application's build inputs into the context.
+**
+!Dockerfile
+!train.py
+!docker/
+!docker/requirements.txt
+!docker/gpu_check.py
+!scripts/
+!scripts/training/
+!scripts/training/*.py
+!tests/
+!tests/*.py
