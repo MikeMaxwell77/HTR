@@ -1,68 +1,44 @@
-# HTR
+# Handwritten Text Recognition
 
-IAM handwriting recognition, centered on `scripts/Better_Segmentation2Keras_v5.py`.
-See [the file guide](docs/FILE_GUIDE.md) for every file and its role.
+This project transcribes IAM handwriting pages. OpenCV detects word regions and orders them by reading position. A saved Keras recognizer decodes the normalized word crops using CTC, then the page pipeline writes the resulting text to CSV.
 
-## Run Better Segmentation v5
+![IAM handwriting page with detected word boxes numbered in reading order](outputs/Detected%20Words%20Sorted%20in%20Red.png)
 
-```powershell
-python scripts/Better_Segmentation2Keras_v5.py
+## Evaluate the saved demo
+
+Run from the repository root with Python. This evaluates the checked-in transcripts and requires no model, GPU, or API key.
+
+```bash
+python scripts/evaluation/evaluate_transcriptions.py
 ```
 
-It requires `models/pred.keras`, `data/forms_data.csv`, and IAM form PNGs.
-Pass your IAM forms directory using `--forms-dir "C:/path/to/Forms"`.
-The original machine-specific default is retained in `scripts/segmentation/config.py`. The images are not included. Required third-party imports include NumPy,
-OpenCV, Keras, TensorFlow, Matplotlib, pandas, and TextBlob.
+| Output on 22 archived IAM pages | Character error rate | Word error rate |
+| --- | ---: | ---: |
+| Recognizer | 66.98% | 90.56% |
+| After ChatGPT cleanup | 61.51% | 74.08% |
 
-No other project script needs to run first when the existing model and CSV are
-available. Results are written to `outputs/model_predictions.csv`; plots and
-console output are also produced. The exported text is the raw prediction;
-TextBlob-corrected text is printed but is not the exported `text_pred` value.
+The script totals edit distances across pages and divides by the total reference character or word count. It folds case, collapses whitespace, and retains punctuation. The cleanup improved the saved outputs by 16.48 percentage points in word error rate. The remaining errors are substantial, and these pages provide a demo comparison rather than a writer-disjoint benchmark.
 
-## Organization
+## Transcribe IAM pages
 
-- `scripts/Better_Segmentation2Keras_v5.py`: main inference workflow.
-- `scripts/data_preparation/`: annotation-to-CSV generators.
-- `scripts/training/`: separate model training experiments.
-- `scripts/evaluation/`: evaluation of existing ChatGPT-refined results.
-- `scripts/examples/`: standalone image-loading and API examples.
-- `scripts/archive/`: unnecessary RNN experiment and duplicate generators.
-- `data/`: annotation CSVs.
-- `models/`: saved model and weights.
-- `outputs/`: prediction CSVs and visualizations.
-- `docs/`: file guide and demo link.
-
-Run scripts from the repository root. Some auxiliary scripts retain original
-absolute IAM dataset paths or relative `words/` paths; configure them locally.
-The training source `human_text_recognition.py` contains notebook shell commands
-and is not directly runnable with Python. Model-training scripts save different
-filenames from `pred.keras`; they are not an automatic rebuild pipeline for it.
-
-## Segmentation modules
-
-The v5 script is now a CLI entry point. Its implementation lives in
-`scripts/segmentation/`:
-
-| Module | Responsibility |
-| --- | --- |
-| `config.py` | Default dataset, model, and output paths |
-| `detection.py` | OpenCV region detection and detector debug views |
-| `extraction.py` | Reading-order sorting, padded crops, and alternate segmentation helper |
-| `preprocessing.py` | Aspect-ratio resize, padding, transpose, and normalization |
-| `recognition.py` | Model loading, character vocabulary, and CTC decoding |
-| `text_processing.py` | Header/footer removal, sentence assembly, spelling correction, overlap counts |
-| `visualization.py` | Numbered word boxes in reading order |
-| `pipeline.py` | Coordinates form processing and exports the prediction CSV |
-| `__init__.py` | Marks the reusable Python package |
+Run from the repository root with the inference dependencies installed. Supply IAM PNG files named by form ID and a reference CSV with `Form ID` and `Form Data` columns. The saved recognizer lives at `models/pred.keras`.
 
 ```powershell
-python scripts/Better_Segmentation2Keras_v5.py --forms-dir "C:/datasets/IAM/Forms" --no-plots
+python scripts/HTR_Main.py --forms-dir "C:/datasets/IAM/Forms" --forms-csv "C:/datasets/IAM/forms_data.csv" --no-plots
 ```
 
-Optional overrides: `--forms-csv`, `--model`, and `--output`. Importing the
-entry point does not start inference. Missing images and forms with no valid
-word crops are reported and skipped. The existing header/footer convention
-and overlap-score formulas remain; those overlap scores are not word error rate.
+The inference script uses NumPy, OpenCV, Keras, TensorFlow, Matplotlib, pandas, and TextBlob, with PyTorch as the default Keras backend. It writes `outputs/model_predictions.csv`. Score that file with `python scripts/evaluation/evaluate_transcriptions.py outputs/model_predictions.csv` once it exists. The exported `text_pred` column contains the recognizer output before the optional cleanup stage.
+
+To build the reference CSV from the IAM annotations, run:
+
+```powershell
+python "scripts/data_preparation/Make formsCSV.py" "C:/datasets/IAM/ascii/lines.txt"
+```
+
+The generator writes `data/forms_data.csv` by default and keeps the original demo’s
+filter for form IDs beginning with `j`. Pass that path as `--forms-csv` for inference.
+
+The main modules live in `scripts/segmentation/`. The detection, crop extraction, recognition, and export steps are separate so errors can be traced to the relevant stage.
 
 ## Keras CTC word training
 
