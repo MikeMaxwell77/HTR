@@ -1,62 +1,42 @@
+"""Build reference transcriptions for the IAM page demo."""
 
-# -*- coding: utf-8 -*-
-"""
-Created on Tue Mar 25 12:27:15 2025
-
-@author: mikey
-"""
-"""
-/////////////DOCUMENTATION/////////////////
-PILLOW: https://pillow.readthedocs.io/en/stable/reference/Image.html
-"""
-#keras
+import argparse
+import csv
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
-import numpy as np
-import pandas as pd
-#image processing
-import numpy as np
-import csv
 
-import csv
+def build_forms_csv(lines_path, output_path):
+    forms = {}
+    with lines_path.open(encoding="utf-8") as source:
+        for line in source:
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            parts = line.split(maxsplit=8)
+            if len(parts) < 9 or parts[1] != "ok":
+                continue
+            form_id = "-".join(parts[0].split("-")[:2])
+            if form_id.startswith("j"):
+                text = parts[8].replace("|", " ").strip()
+                forms.setdefault(form_id, []).append(text)
+
+    if not forms:
+        raise ValueError("No usable IAM annotations for forms beginning with j")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8", newline="") as output:
+        writer = csv.writer(output)
+        writer.writerow(["Form ID", "Form Data"])
+        writer.writerows((form_id, " ".join(lines)) for form_id, lines in forms.items())
 
 
-lines_txt_path = r"C:\Users\mikey\OneDrive\Documents\USCB\Data Mining\Project\ascii\lines.txt"
-
-forms_data = {}
-
-with open(lines_txt_path, 'r', encoding='utf-8') as f:
-    for line in f:
-        if line.startswith("#"):
-            continue
-
-        parts = line.strip().split(' ')
-        if parts[1] != 'ok':
-            continue
-
-        form_id = '-'.join(parts[0].split('-')[:2])
-        text = ' '.join(parts[8:])
-        
-        #get rid of | and put in spaces
-        text = text.replace('|', ' ').strip()
-
-        forms_data.setdefault(form_id, []).append(text)
-
-#keep only forms starting with 'j'
-forms_data = {fid: lines for fid, lines in forms_data.items() if fid.startswith('j')}
-
-#prepare the data to write to CSV (one big line per form)
-csv_data = []
-for form_id, lines in forms_data.items():
-    #join all lines into one single string (normal readable sentence)
-    big_line = ' '.join(lines)
-    csv_data.append([form_id, big_line])
-
-#write the data to a csv file
-csv_output_path = str(PROJECT_ROOT / "data/forms_data.csv")
-with open(csv_output_path, 'w', newline='', encoding='utf-8') as f:
-    w = csv.writer(f)
-    w.writerow(['Form ID', 'Form Data'])  #write header
-    w.writerows(csv_data)  #write all the rows
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("lines_txt", type=Path, help="Path to IAM ascii/lines.txt")
+    parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "data/forms_data.csv")
+    args = parser.parse_args()
+    try:
+        build_forms_csv(args.lines_txt, args.output)
+    except (OSError, ValueError) as exc:
+        parser.exit(1, f"{exc}\n")
